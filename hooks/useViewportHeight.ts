@@ -70,6 +70,10 @@ export function useViewportHeight(): void {
     let trackUntil = 0;
     let renderedHeight: number | null = null;
     let lastFrameTimestamp: number | null = null;
+    // Read the CSS-sized shell rather than innerHeight. In an iOS standalone
+    // app the stylesheet deliberately uses 100vh because innerHeight/100dvh
+    // can omit the status-bar strip while still laying the page out from y=0.
+    let restingHeight = root.getBoundingClientRect().height || window.innerHeight;
 
     const clearHeight = () => {
       root.style.removeProperty("--app-viewport-height");
@@ -93,9 +97,10 @@ export function useViewportHeight(): void {
         renderedHeight = null;
         lastFrameTimestamp = null;
         clearHeight();
+        restingHeight = root.getBoundingClientRect().height || window.innerHeight;
       } else if (useVisualViewport || renderedHeight !== null) {
-        const targetHeight = useVisualViewport ? viewport.height : window.innerHeight;
-        const currentHeight = renderedHeight ?? window.innerHeight;
+        const targetHeight = useVisualViewport ? viewport.height : restingHeight;
+        const currentHeight = renderedHeight ?? restingHeight;
         const elapsedSinceLastFrame = lastFrameTimestamp === null
           ? 16
           : timestamp - lastFrameTimestamp;
@@ -122,6 +127,7 @@ export function useViewportHeight(): void {
       } else {
         lastFrameTimestamp = null;
         clearHeight();
+        restingHeight = root.getBoundingClientRect().height || window.innerHeight;
       }
 
       if (timestamp < trackUntil || !heightIsSettled) {
