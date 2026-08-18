@@ -70,7 +70,8 @@ export function AppShell() {
     preference === "light" ? "theme.light" : preference === "dark" ? "theme.dark" : "theme.auto";
   const { locale, setLocale, t: translate, supportedLocales } = useI18n();
   const isMobile = useIsMobile();
-  useViewportHeight();
+  const appViewportRef = useRef<HTMLDivElement>(null);
+  useViewportHeight(appViewportRef);
   // Audio ownership lives here (not in ChatWindow) so the completion tone can
   // also fire for tasks finishing in a non-active workspace whose ChatWindow
   // is not mounted. ChatWindow receives the audio callbacks as props.
@@ -1641,7 +1642,7 @@ export function AppShell() {
         }
       }
     `}</style>
-    <div style={{
+    <div ref={appViewportRef} style={{
       display: "flex",
       width: "100%",
       height: "var(--app-viewport-height, 100dvh)",

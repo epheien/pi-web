@@ -455,16 +455,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
 
-  const handleTextareaPointerDown = useCallback((event: React.PointerEvent<HTMLTextAreaElement>) => {
-    if (event.pointerType !== "touch" || document.activeElement === event.currentTarget) return;
-
-    // Native focus happens after pointerdown and iOS Safari may pan the layout
-    // viewport before visualViewport.resize arrives. Focus early without
-    // scrolling; leave the default action enabled so Safari still places the
-    // caret at the tapped character.
-    focusWithoutViewportScroll(event.currentTarget);
-  }, []);
-
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
       const ta = textareaRef.current;
@@ -1898,7 +1888,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <textarea
             ref={textareaRef}
             value={value}
-            onPointerDown={handleTextareaPointerDown}
             onChange={(e) => {
               valueRef.current = e.target.value;
               setValue(e.target.value);

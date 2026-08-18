@@ -3,24 +3,12 @@ import test from "node:test";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url);
-const { getSmoothedViewportHeight, shouldUseVisualViewportHeight } = await jiti.import("./useViewportHeight.ts");
-
-test("smooths a viewport height jump over multiple frames", () => {
-  const first = getSmoothedViewportHeight(844, 524, 16);
-  const second = getSmoothedViewportHeight(first, 524, 16);
-
-  assert.ok(first < 844 && first > 524);
-  assert.ok(second < first && second > 524);
-});
-
-test("snaps viewport height at the target and when motion is reduced", () => {
-  assert.equal(getSmoothedViewportHeight(524.4, 524, 16), 524);
-  assert.equal(getSmoothedViewportHeight(844, 524, 16, true), 524);
-});
+const { shouldTrackKeyboardViewportHeight } = await jiti.import("./useViewportHeight.ts");
 
 test("uses the visual viewport for a focused editor when the keyboard shrinks it", () => {
-  assert.equal(shouldUseVisualViewportHeight({
+  assert.equal(shouldTrackKeyboardViewportHeight({
     hasFocusedEditable: true,
+    keyboardTracking: false,
     innerHeight: 844,
     viewportHeight: 510,
     viewportScale: 1,
@@ -28,26 +16,29 @@ test("uses the visual viewport for a focused editor when the keyboard shrinks it
 });
 
 test("does not keep the keyboard height after the visual viewport restores", () => {
-  assert.equal(shouldUseVisualViewportHeight({
-    hasFocusedEditable: true,
+  assert.equal(shouldTrackKeyboardViewportHeight({
+    hasFocusedEditable: false,
+    keyboardTracking: true,
     innerHeight: 844,
     viewportHeight: 844,
     viewportScale: 1,
   }), false);
 });
 
-test("restores the dynamic height as soon as the editor loses focus", () => {
-  assert.equal(shouldUseVisualViewportHeight({
+test("keeps tracking the reduced viewport while the keyboard dismisses", () => {
+  assert.equal(shouldTrackKeyboardViewportHeight({
     hasFocusedEditable: false,
+    keyboardTracking: true,
     innerHeight: 844,
     viewportHeight: 510,
     viewportScale: 1,
-  }), false);
+  }), true);
 });
 
 test("does not mistake pinch zoom for an open keyboard", () => {
-  assert.equal(shouldUseVisualViewportHeight({
+  assert.equal(shouldTrackKeyboardViewportHeight({
     hasFocusedEditable: true,
+    keyboardTracking: false,
     innerHeight: 844,
     viewportHeight: 422,
     viewportScale: 2,
@@ -55,10 +46,42 @@ test("does not mistake pinch zoom for an open keyboard", () => {
 });
 
 test("keeps the dynamic viewport height when the visual viewport is not reduced", () => {
-  assert.equal(shouldUseVisualViewportHeight({
+  assert.equal(shouldTrackKeyboardViewportHeight({
     hasFocusedEditable: true,
+    keyboardTracking: false,
     innerHeight: 844,
     viewportHeight: 844,
     viewportScale: 1,
   }), false);
+});
+
+test("does not start keyboard tracking merely because an unfocused viewport is reduced", () => {
+  assert.equal(shouldTrackKeyboardViewportHeight({
+    hasFocusedEditable: false,
+    keyboardTracking: false,
+    innerHeight: 844,
+    viewportHeight: 510,
+    viewportScale: 1,
+  }), false);
+});
+
+test("keeps one viewport-tracking lifecycle across rapid blur and refocus", () => {
+  let keyboardTracking = false;
+  const transition = (hasFocusedEditable, viewportHeight) => {
+    keyboardTracking = shouldTrackKeyboardViewportHeight({
+      hasFocusedEditable,
+      keyboardTracking,
+      innerHeight: 844,
+      viewportHeight,
+      viewportScale: 1,
+    });
+    return keyboardTracking;
+  };
+
+  assert.equal(transition(true, 510), true, "keyboard opened");
+  assert.equal(transition(false, 510), true, "focus left before dismissal started");
+  assert.equal(transition(false, 620), true, "keyboard is partway through dismissal");
+  assert.equal(transition(true, 590), true, "editor refocused while keyboard reverses");
+  assert.equal(transition(false, 700), true, "second dismissal remains tracked");
+  assert.equal(transition(false, 844), false, "tracking ends only at the resting viewport");
 });

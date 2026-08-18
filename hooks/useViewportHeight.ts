@@ -1,47 +1,30 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, type RefObject } from "react";
 
-interface ViewportHeightState {
+interface KeyboardViewportState {
   hasFocusedEditable: boolean;
+  keyboardTracking: boolean;
   innerHeight: number;
   viewportHeight: number;
   viewportScale: number;
 }
 
 const VIEWPORT_TRACKING_MS = 750;
-const VIEWPORT_SMOOTHING_TIME_CONSTANT_MS = 40;
-const VIEWPORT_HEIGHT_SNAP_EPSILON = 0.5;
+const KEYBOARD_VIEWPORT_THRESHOLD = 1;
 
-export function getSmoothedViewportHeight(
-  currentHeight: number,
-  targetHeight: number,
-  elapsedMs: number,
-  reduceMotion = false,
-): number {
-  if (reduceMotion || Math.abs(targetHeight - currentHeight) <= VIEWPORT_HEIGHT_SNAP_EPSILON) {
-    return targetHeight;
-  }
-
-  // Exponential easing stays continuous when WebKit changes its target height
-  // during the keyboard animation. A 40ms time constant settles a typical
-  // phone keyboard transition in roughly 240–280ms.
-  const boundedElapsed = Math.max(0, Math.min(elapsedMs, 64));
-  const progress = 1 - Math.exp(-boundedElapsed / VIEWPORT_SMOOTHING_TIME_CONSTANT_MS);
-  const nextHeight = currentHeight + (targetHeight - currentHeight) * progress;
-  return Math.abs(targetHeight - nextHeight) <= VIEWPORT_HEIGHT_SNAP_EPSILON
-    ? targetHeight
-    : nextHeight;
-}
-
-export function shouldUseVisualViewportHeight({
+export function shouldTrackKeyboardViewportHeight({
   hasFocusedEditable,
+  keyboardTracking,
   innerHeight,
   viewportHeight,
   viewportScale,
-}: ViewportHeightState): boolean {
+}: KeyboardViewportState): boolean {
   const isUnscaled = Math.abs(viewportScale - 1) < 0.01;
-  return hasFocusedEditable && isUnscaled && innerHeight - viewportHeight > 1;
+  const viewportIsReduced = innerHeight - viewportHeight > KEYBOARD_VIEWPORT_THRESHOLD;
+  return isUnscaled
+    && viewportIsReduced
+    && (hasFocusedEditable || keyboardTracking);
 }
 
 function hasFocusedEditableElement(): boolean {
@@ -56,81 +39,49 @@ function hasFocusedEditableElement(): boolean {
 
 /**
  * Keep the app height aligned with the visual viewport while a mobile keyboard
- * is open. Only resize the app here: forcing the layout viewport back to the
- * origin while WebKit is animating its visual viewport causes visible jumps.
+ * is opening or closing. The shell follows WebKit's measured height directly;
+ * an independent easing animation can leave the focused composer below the
+ * keyboard and cause iOS to pan the layout viewport.
  */
-export function useViewportHeight(): void {
+export function useViewportHeight(viewportRootRef: RefObject<HTMLElement | null>): void {
   useEffect(() => {
     const viewport = window.visualViewport;
-    if (!viewport) return;
+    const viewportRoot = viewportRootRef.current;
+    if (!viewport || !viewportRoot) return;
 
-    const root = document.documentElement;
-    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     let frameId: number | null = null;
     let trackUntil = 0;
-    let renderedHeight: number | null = null;
-    let lastFrameTimestamp: number | null = null;
-    // Read the CSS-sized shell rather than innerHeight. In an iOS standalone
-    // app the stylesheet deliberately uses 100vh because innerHeight/100dvh
-    // can omit the status-bar strip while still laying the page out from y=0.
-    let restingHeight = root.getBoundingClientRect().height || window.innerHeight;
+    let keyboardViewportActive = false;
 
     const clearHeight = () => {
-      root.style.removeProperty("--app-viewport-height");
+      viewportRoot.style.removeProperty("--app-viewport-height");
     };
 
     const update = (timestamp: number) => {
       frameId = null;
-      const useVisualViewport = shouldUseVisualViewportHeight({
-        // Stop constraining the app on the first frame after focus leaves an
-        // editor. Safari can report the reduced visual viewport for another
-        // 0.5–1s, but keeping that stale height makes the composer feel stuck.
+      const trackKeyboardViewport = shouldTrackKeyboardViewportHeight({
         hasFocusedEditable: hasFocusedEditableElement(),
+        // Keep following visualViewport after focusout. On iOS, focus leaves
+        // before the keyboard starts expanding the viewport; restoring the
+        // full shell at that point puts the composer behind the still-visible
+        // keyboard and makes rapid blur/refocus transitions race each other.
+        keyboardTracking: keyboardViewportActive,
         innerHeight: window.innerHeight,
         viewportHeight: viewport.height,
         viewportScale: viewport.scale,
       });
 
-      const isUnscaled = Math.abs(viewport.scale - 1) < 0.01;
-      let heightIsSettled = true;
-      if (!isUnscaled) {
-        renderedHeight = null;
-        lastFrameTimestamp = null;
-        clearHeight();
-        restingHeight = root.getBoundingClientRect().height || window.innerHeight;
-      } else if (useVisualViewport || renderedHeight !== null) {
-        const targetHeight = useVisualViewport ? viewport.height : restingHeight;
-        const currentHeight = renderedHeight ?? restingHeight;
-        const elapsedSinceLastFrame = lastFrameTimestamp === null
-          ? 16
-          : timestamp - lastFrameTimestamp;
-        // Treat a new animation after an idle period as its first frame. Using
-        // the full idle duration would make the blur transition jump almost
-        // directly to its final height before the next frame is painted.
-        const elapsedMs = elapsedSinceLastFrame > 64 ? 16 : elapsedSinceLastFrame;
-        renderedHeight = getSmoothedViewportHeight(
-          currentHeight,
-          targetHeight,
-          elapsedMs,
-          reducedMotionQuery.matches,
-        );
-        lastFrameTimestamp = timestamp;
-        heightIsSettled = renderedHeight === targetHeight;
-
-        if (!useVisualViewport && heightIsSettled) {
-          renderedHeight = null;
-          lastFrameTimestamp = null;
-          clearHeight();
-        } else {
-          root.style.setProperty("--app-viewport-height", `${renderedHeight}px`);
-        }
+      keyboardViewportActive = trackKeyboardViewport;
+      if (trackKeyboardViewport) {
+        // visualViewport already reports WebKit's keyboard animation frame by
+        // frame. Mirroring it keeps the composer inside the visible geometry
+        // instead of creating a second animation that can lag or reverse.
+        viewportRoot.style.setProperty("--app-viewport-height", `${viewport.height}px`);
       } else {
-        lastFrameTimestamp = null;
         clearHeight();
-        restingHeight = root.getBoundingClientRect().height || window.innerHeight;
       }
 
-      if (timestamp < trackUntil || !heightIsSettled) {
+      if (timestamp < trackUntil) {
         frameId = window.requestAnimationFrame(update);
       }
     };
@@ -161,5 +112,5 @@ export function useViewportHeight(): void {
       if (frameId !== null) window.cancelAnimationFrame(frameId);
       clearHeight();
     };
-  }, []);
+  }, [viewportRootRef]);
 }

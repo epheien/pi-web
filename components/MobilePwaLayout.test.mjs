@@ -17,7 +17,9 @@ test("configures iOS standalone mode to use the full screen", () => {
 });
 
 test("tracks the visual viewport while the software keyboard is open", () => {
-  assert.match(appShellSource, /useViewportHeight\(\)/);
+  assert.match(appShellSource, /const appViewportRef = useRef<HTMLDivElement>\(null\)/);
+  assert.match(appShellSource, /useViewportHeight\(appViewportRef\)/);
+  assert.match(appShellSource, /<div ref=\{appViewportRef\} style=/);
   assert.match(appShellSource, /paddingTop: "env\(safe-area-inset-top\)"/);
   assert.match(appShellSource, /paddingBottom: "env\(safe-area-inset-bottom\)"/);
   assert.match(appShellSource, /paddingLeft: "env\(safe-area-inset-left\)"/);
@@ -32,15 +34,18 @@ test("tracks the visual viewport while the software keyboard is open", () => {
   assert.match(viewportHookSource, /window\.addEventListener\("focusout", scheduleUpdate\)/);
   assert.match(viewportHookSource, /--app-viewport-height/);
   assert.match(viewportHookSource, /hasFocusedEditable: hasFocusedEditableElement\(\)/);
+  assert.match(viewportHookSource, /shouldTrackKeyboardViewportHeight/);
+  assert.match(viewportHookSource, /keyboardTracking: keyboardViewportActive/);
+  assert.match(viewportHookSource, /`\$\{viewport\.height\}px`/);
+  assert.match(viewportHookSource, /viewportRoot\.style\.setProperty/);
+  assert.doesNotMatch(viewportHookSource, /document\.documentElement/);
+  assert.doesNotMatch(viewportHookSource, /getSmoothedViewportHeight/);
   assert.doesNotMatch(viewportHookSource, /window\.scrollTo\(/);
   assert.match(cssSource, /height: var\(--app-viewport-height, 100dvh\)/);
-  assert.match(chatInputSource, /onPointerDown=\{handleTextareaPointerDown\}/);
+  assert.doesNotMatch(chatInputSource, /handleTextareaPointerDown/);
   assert.match(chatInputSource, /focus\(\{ preventScroll: true \}\)/);
   assert.match(chatWindowSource, /new ResizeObserver/);
   assert.match(chatWindowSource, /getScrollTopForResizedViewport/);
-  assert.match(viewportHookSource, /getSmoothedViewportHeight/);
-  assert.match(viewportHookSource, /restingHeight = root\.getBoundingClientRect\(\)\.height/);
-  assert.match(viewportHookSource, /prefers-reduced-motion: reduce/);
   assert.match(cssSource, /left: env\(safe-area-inset-left\)/);
   assert.match(chatWindowSource, /paddingBottom: "env\(safe-area-inset-bottom\)"/);
 });
