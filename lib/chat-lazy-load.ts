@@ -23,6 +23,24 @@ export function restoreScrollTop(scrollHeight: number, savedDistance: number): n
   return Math.max(0, scrollHeight - savedDistance);
 }
 
+/**
+ * Keep the same content at the bottom edge when a chat viewport changes
+ * height. This makes the visible messages move with the composer instead of
+ * leaving them fixed while the software keyboard opens or closes.
+ */
+export function getScrollTopForResizedViewport(
+  scrollTop: number,
+  previousClientHeight: number,
+  nextClientHeight: number,
+  scrollHeight: number,
+): number {
+  const maxScrollTop = Math.max(0, scrollHeight - nextClientHeight);
+  return Math.min(
+    maxScrollTop,
+    Math.max(0, scrollTop + previousClientHeight - nextClientHeight),
+  );
+}
+
 export function isScrollAtTail(
   scrollTop: number,
   clientHeight: number,

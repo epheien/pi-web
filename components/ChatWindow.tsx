@@ -20,6 +20,7 @@ import {
   captureScrollDistance,
   getNextVisibleCount,
   getPromptAnchorSpacerHeight,
+  getScrollTopForResizedViewport,
   getVisibleRenderWindow,
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
@@ -422,6 +423,48 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   }, [messages.length]);
 
   const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy;
+
+  useLayoutEffect(() => {
+    if (!isMobile) return;
+    const container = scrollContainerRef.current;
+    if (!container || typeof ResizeObserver === "undefined") return;
+
+    let previousClientHeight = container.clientHeight;
+    let previousScrollTop = container.scrollTop;
+
+    const handleScroll = () => {
+      // A scroll event can be queued after layout but before ResizeObserver.
+      // Do not replace the pre-resize position with that transient value.
+      if (container.clientHeight === previousClientHeight) {
+        previousScrollTop = container.scrollTop;
+      }
+    };
+
+    const observer = new ResizeObserver(() => {
+      const nextClientHeight = container.clientHeight;
+      if (nextClientHeight === previousClientHeight) return;
+
+      const nextScrollTop = getScrollTopForResizedViewport(
+        previousScrollTop,
+        previousClientHeight,
+        nextClientHeight,
+        container.scrollHeight,
+      );
+      previousClientHeight = nextClientHeight;
+      previousScrollTop = nextScrollTop;
+      if (Math.abs(container.scrollTop - nextScrollTop) > 0.5) {
+        container.scrollTop = nextScrollTop;
+      }
+    });
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, [error, isEmptyNew, isMobile, loading, scrollContainerRef]);
+
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const messageContentRef = useRef<HTMLDivElement | null>(null);
