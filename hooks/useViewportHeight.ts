@@ -9,6 +9,8 @@ interface ViewportHeightState {
   viewportScale: number;
 }
 
+const VIEWPORT_TRACKING_MS = 750;
+
 export function shouldUseVisualViewportHeight({
   hasFocusedEditable,
   innerHeight,
@@ -31,8 +33,8 @@ function hasFocusedEditableElement(): boolean {
 
 /**
  * Keep the app height aligned with the visual viewport while a mobile keyboard
- * is open. iOS standalone PWAs can leave 100dvh at the layout viewport height,
- * which puts the composer behind the keyboard and may scroll the page itself.
+ * is open. Only resize the app here: forcing the layout viewport back to the
+ * origin while WebKit is animating its visual viewport causes visible jumps.
  */
 export function useViewportHeight(): void {
   useEffect(() => {
@@ -41,35 +43,41 @@ export function useViewportHeight(): void {
 
     const root = document.documentElement;
     let frameId: number | null = null;
+    let trackUntil = 0;
 
-    const update = () => {
+    const clearHeight = () => {
+      root.style.removeProperty("--app-viewport-height");
+    };
+
+    const update = (timestamp: number) => {
       frameId = null;
-      const keyboardOpen = shouldUseVisualViewportHeight({
+      const useVisualViewport = shouldUseVisualViewportHeight({
+        // Stop constraining the app on the first frame after focus leaves an
+        // editor. Safari can report the reduced visual viewport for another
+        // 0.5–1s, but keeping that stale height makes the composer feel stuck.
         hasFocusedEditable: hasFocusedEditableElement(),
         innerHeight: window.innerHeight,
         viewportHeight: viewport.height,
         viewportScale: viewport.scale,
       });
-      if (keyboardOpen) {
+
+      if (useVisualViewport) {
         root.style.setProperty("--app-viewport-height", `${viewport.height}px`);
       } else {
-        root.style.removeProperty("--app-viewport-height");
+        clearHeight();
       }
 
-      const pageWasShifted = window.scrollX !== 0 || window.scrollY !== 0;
-      const isUnscaled = Math.abs(viewport.scale - 1) < 0.01;
-      if (pageWasShifted && isUnscaled) {
-        window.scrollTo(0, 0);
+      if (timestamp < trackUntil) {
+        frameId = window.requestAnimationFrame(update);
       }
     };
 
-    // WebKit can dispatch the resize event before visualViewport.height has
-    // settled, especially when an installed PWA dismisses the keyboard. Reading
-    // it on the next animation frame prevents the keyboard-height CSS value
-    // from remaining after the keyboard has closed.
+    // Do not cancel an already queued frame: WebKit can emit resize events
+    // faster than animation frames during the keyboard transition, and
+    // debounce-by-cancellation would postpone all layout work until it ends.
     const scheduleUpdate = () => {
-      if (frameId !== null) window.cancelAnimationFrame(frameId);
-      frameId = window.requestAnimationFrame(update);
+      trackUntil = Math.max(trackUntil, performance.now() + VIEWPORT_TRACKING_MS);
+      if (frameId === null) frameId = window.requestAnimationFrame(update);
     };
 
     scheduleUpdate();
@@ -88,7 +96,7 @@ export function useViewportHeight(): void {
       window.removeEventListener("focusout", scheduleUpdate);
       window.removeEventListener("pageshow", scheduleUpdate);
       if (frameId !== null) window.cancelAnimationFrame(frameId);
-      root.style.removeProperty("--app-viewport-height");
+      clearHeight();
     };
   }, []);
 }

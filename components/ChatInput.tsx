@@ -105,6 +105,10 @@ const MODEL_FILTER_THRESHOLD = 8;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 const ANCHORED_MENU_GAP = 8;
 
+export function focusWithoutViewportScroll(element: Pick<HTMLElement, "focus">): void {
+  element.focus({ preventScroll: true });
+}
+
 export function getUpwardMenuMaxHeight(menuBottom: number, visibleTop: number, gap = ANCHORED_MENU_GAP): number {
   return Math.max(0, Math.floor(menuBottom - visibleTop - gap));
 }
@@ -451,6 +455,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   valueRef.current = value;
   attachedImagesRef.current = attachedImages;
 
+  const handleTextareaPointerDown = useCallback((event: React.PointerEvent<HTMLTextAreaElement>) => {
+    if (event.pointerType !== "touch" || document.activeElement === event.currentTarget) return;
+
+    // Native focus happens after pointerdown and iOS Safari may pan the layout
+    // viewport before visualViewport.resize arrives. Focus early without
+    // scrolling; leave the default action enabled so Safari still places the
+    // caret at the tapped character.
+    focusWithoutViewportScroll(event.currentTarget);
+  }, []);
+
   useImperativeHandle(ref, () => ({
     insertIfEmpty(text: string) {
       const ta = textareaRef.current;
@@ -461,7 +475,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setAtQuery(null);
       requestAnimationFrame(() => {
         if (!ta) return;
-        ta.focus();
+        focusWithoutViewportScroll(ta);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
@@ -484,7 +498,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       });
       requestAnimationFrame(() => {
         if (!ta) return;
-        ta.focus();
+        focusWithoutViewportScroll(ta);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
@@ -501,7 +515,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setAtQuery(null);
       requestAnimationFrame(() => {
         if (!ta) return;
-        ta.focus();
+        focusWithoutViewportScroll(ta);
         ta.setSelectionRange(combined.length, combined.length);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
@@ -597,7 +611,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       requestAnimationFrame(() => {
         const ta = textareaRef.current;
         if (!ta) return;
-        ta.focus();
+        focusWithoutViewportScroll(ta);
         ta.setSelectionRange(ta.value.length, ta.value.length);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
@@ -622,7 +636,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         if (!ta) return;
         const pos = start + sep.length + text.length;
         ta.setSelectionRange(pos, pos);
-        ta.focus();
+        focusWithoutViewportScroll(ta);
         ta.style.height = "auto";
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
@@ -912,7 +926,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (!el) return;
-      el.focus();
+      focusWithoutViewportScroll(el);
       el.setSelectionRange(newPos, newPos);
       el.style.height = "auto";
       el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
@@ -957,7 +971,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (!ta) return;
-      ta.focus();
+      focusWithoutViewportScroll(ta);
       ta.setSelectionRange(text.length, text.length);
       ta.style.height = "auto";
       ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
@@ -972,7 +986,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (!ta) return;
-      ta.focus();
+      focusWithoutViewportScroll(ta);
       ta.setSelectionRange(nextValue.length, nextValue.length);
       ta.style.height = "auto";
       ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
@@ -1884,6 +1898,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <textarea
             ref={textareaRef}
             value={value}
+            onPointerDown={handleTextareaPointerDown}
             onChange={(e) => {
               valueRef.current = e.target.value;
               setValue(e.target.value);

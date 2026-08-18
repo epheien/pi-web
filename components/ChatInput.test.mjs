@@ -8,9 +8,20 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, filterModelOptions, focusWithoutViewportScroll, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
+
+test("focuses the composer without allowing the browser to pan the page", () => {
+  let receivedOptions;
+  focusWithoutViewportScroll({
+    focus(options) {
+      receivedOptions = options;
+    },
+  });
+
+  assert.deepEqual(receivedOptions, { preventScroll: true });
+});
 
 test("renders the upstream model error", () => {
   const html = renderToStaticMarkup(
