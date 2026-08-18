@@ -10,6 +10,29 @@ interface ViewportHeightState {
 }
 
 const VIEWPORT_TRACKING_MS = 750;
+const VIEWPORT_SMOOTHING_TIME_CONSTANT_MS = 40;
+const VIEWPORT_HEIGHT_SNAP_EPSILON = 0.5;
+
+export function getSmoothedViewportHeight(
+  currentHeight: number,
+  targetHeight: number,
+  elapsedMs: number,
+  reduceMotion = false,
+): number {
+  if (reduceMotion || Math.abs(targetHeight - currentHeight) <= VIEWPORT_HEIGHT_SNAP_EPSILON) {
+    return targetHeight;
+  }
+
+  // Exponential easing stays continuous when WebKit changes its target height
+  // during the keyboard animation. A 40ms time constant settles a typical
+  // phone keyboard transition in roughly 240–280ms.
+  const boundedElapsed = Math.max(0, Math.min(elapsedMs, 64));
+  const progress = 1 - Math.exp(-boundedElapsed / VIEWPORT_SMOOTHING_TIME_CONSTANT_MS);
+  const nextHeight = currentHeight + (targetHeight - currentHeight) * progress;
+  return Math.abs(targetHeight - nextHeight) <= VIEWPORT_HEIGHT_SNAP_EPSILON
+    ? targetHeight
+    : nextHeight;
+}
 
 export function shouldUseVisualViewportHeight({
   hasFocusedEditable,
@@ -42,8 +65,11 @@ export function useViewportHeight(): void {
     if (!viewport) return;
 
     const root = document.documentElement;
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     let frameId: number | null = null;
     let trackUntil = 0;
+    let renderedHeight: number | null = null;
+    let lastFrameTimestamp: number | null = null;
 
     const clearHeight = () => {
       root.style.removeProperty("--app-viewport-height");
@@ -61,13 +87,44 @@ export function useViewportHeight(): void {
         viewportScale: viewport.scale,
       });
 
-      if (useVisualViewport) {
-        root.style.setProperty("--app-viewport-height", `${viewport.height}px`);
+      const isUnscaled = Math.abs(viewport.scale - 1) < 0.01;
+      let heightIsSettled = true;
+      if (!isUnscaled) {
+        renderedHeight = null;
+        lastFrameTimestamp = null;
+        clearHeight();
+      } else if (useVisualViewport || renderedHeight !== null) {
+        const targetHeight = useVisualViewport ? viewport.height : window.innerHeight;
+        const currentHeight = renderedHeight ?? window.innerHeight;
+        const elapsedSinceLastFrame = lastFrameTimestamp === null
+          ? 16
+          : timestamp - lastFrameTimestamp;
+        // Treat a new animation after an idle period as its first frame. Using
+        // the full idle duration would make the blur transition jump almost
+        // directly to its final height before the next frame is painted.
+        const elapsedMs = elapsedSinceLastFrame > 64 ? 16 : elapsedSinceLastFrame;
+        renderedHeight = getSmoothedViewportHeight(
+          currentHeight,
+          targetHeight,
+          elapsedMs,
+          reducedMotionQuery.matches,
+        );
+        lastFrameTimestamp = timestamp;
+        heightIsSettled = renderedHeight === targetHeight;
+
+        if (!useVisualViewport && heightIsSettled) {
+          renderedHeight = null;
+          lastFrameTimestamp = null;
+          clearHeight();
+        } else {
+          root.style.setProperty("--app-viewport-height", `${renderedHeight}px`);
+        }
       } else {
+        lastFrameTimestamp = null;
         clearHeight();
       }
 
-      if (timestamp < trackUntil) {
+      if (timestamp < trackUntil || !heightIsSettled) {
         frameId = window.requestAnimationFrame(update);
       }
     };

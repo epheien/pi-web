@@ -3,7 +3,20 @@ import test from "node:test";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url);
-const { shouldUseVisualViewportHeight } = await jiti.import("./useViewportHeight.ts");
+const { getSmoothedViewportHeight, shouldUseVisualViewportHeight } = await jiti.import("./useViewportHeight.ts");
+
+test("smooths a viewport height jump over multiple frames", () => {
+  const first = getSmoothedViewportHeight(844, 524, 16);
+  const second = getSmoothedViewportHeight(first, 524, 16);
+
+  assert.ok(first < 844 && first > 524);
+  assert.ok(second < first && second > 524);
+});
+
+test("snaps viewport height at the target and when motion is reduced", () => {
+  assert.equal(getSmoothedViewportHeight(524.4, 524, 16), 524);
+  assert.equal(getSmoothedViewportHeight(844, 524, 16, true), 524);
+});
 
 test("uses the visual viewport for a focused editor when the keyboard shrinks it", () => {
   assert.equal(shouldUseVisualViewportHeight({

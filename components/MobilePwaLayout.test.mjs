@@ -37,6 +37,8 @@ test("tracks the visual viewport while the software keyboard is open", () => {
   assert.match(chatInputSource, /focus\(\{ preventScroll: true \}\)/);
   assert.match(chatWindowSource, /new ResizeObserver/);
   assert.match(chatWindowSource, /getScrollTopForResizedViewport/);
+  assert.match(viewportHookSource, /getSmoothedViewportHeight/);
+  assert.match(viewportHookSource, /prefers-reduced-motion: reduce/);
   assert.match(cssSource, /left: env\(safe-area-inset-left\)/);
   assert.match(chatWindowSource, /paddingBottom: "env\(safe-area-inset-bottom\)"/);
 });
