@@ -35,9 +35,15 @@ test("tracks the visual viewport while the software keyboard is open", () => {
   assert.match(viewportHookSource, /--app-viewport-height/);
   assert.match(viewportHookSource, /hasFocusedEditable: hasFocusedEditableElement\(\)/);
   assert.match(viewportHookSource, /shouldTrackKeyboardViewportHeight/);
+  assert.match(viewportHookSource, /keepTrackingAfterFocusLoss/);
   assert.match(viewportHookSource, /keyboardTracking: keyboardViewportActive/);
-  assert.match(viewportHookSource, /`\$\{viewport\.height\}px`/);
+  assert.match(viewportHookSource, /`\$\{geometry\.height\}px`/);
+  assert.match(viewportHookSource, /--app-new-session-center-offset/);
   assert.match(viewportHookSource, /viewportRoot\.style\.setProperty/);
+  assert.doesNotMatch(viewportHookSource, /viewportRoot\.style\.setProperty\("position"/);
+  assert.doesNotMatch(viewportHookSource, /viewportRoot\.style\.setProperty\("top"/);
+  assert.doesNotMatch(viewportHookSource, /viewportRoot\.style\.setProperty\("margin-top"/);
+  assert.doesNotMatch(viewportHookSource, /viewportRoot\.style\.setProperty\("transform"/);
   assert.doesNotMatch(viewportHookSource, /document\.documentElement/);
   assert.doesNotMatch(viewportHookSource, /getSmoothedViewportHeight/);
   assert.doesNotMatch(viewportHookSource, /window\.scrollTo\(/);
@@ -46,6 +52,13 @@ test("tracks the visual viewport while the software keyboard is open", () => {
   assert.match(chatInputSource, /focus\(\{ preventScroll: true \}\)/);
   assert.match(chatWindowSource, /new ResizeObserver/);
   assert.match(chatWindowSource, /getScrollTopForResizedViewport/);
+  assert.match(chatWindowSource, /addEventListener\("touchstart", handleTouchStart/);
+  assert.match(chatWindowSource, /addEventListener\("touchend", handleTouchEnd/);
+  assert.match(
+    chatWindowSource,
+    /new ResizeObserver\(\(\) => \{[\s\S]*?if \(isTouchScrolling\(\)\) \{\s*syncScrollBaseline\(\);\s*return;/,
+  );
+  assert.match(chatWindowSource, /paddingTop: "calc\(2rem \+ var\(--app-new-session-center-offset, 0px\)\)"/);
   assert.match(cssSource, /left: env\(safe-area-inset-left\)/);
   assert.match(chatWindowSource, /paddingBottom: "env\(safe-area-inset-bottom\)"/);
 });

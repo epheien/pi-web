@@ -71,6 +71,7 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
 
 const CHAT_MINIMAP_WIDTH = 36;
 const CHAT_COLUMN_PADDING = 16;
+const TOUCH_SCROLL_IDLE_MS = 160;
 
 function NewSessionUpdateLink({
   label,
@@ -431,8 +432,37 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 
     let previousClientHeight = container.clientHeight;
     let previousScrollTop = container.scrollTop;
+    let touchScrollUntil = 0;
+
+    const syncScrollBaseline = () => {
+      previousClientHeight = container.clientHeight;
+      previousScrollTop = container.scrollTop;
+    };
+
+    const isTouchScrolling = () => performance.now() < touchScrollUntil;
+
+    const handleTouchStart = () => {
+      touchScrollUntil = Number.POSITIVE_INFINITY;
+      syncScrollBaseline();
+    };
+
+    const handleTouchEnd = (event: TouchEvent) => {
+      touchScrollUntil = event.touches.length > 0
+        ? Number.POSITIVE_INFINITY
+        : performance.now() + TOUCH_SCROLL_IDLE_MS;
+    };
 
     const handleScroll = () => {
+      if (isTouchScrolling()) {
+        // During a direct touch or its momentum, the native scroll position is
+        // authoritative. Resizing can still happen as standalone WebKit's
+        // visual viewport settles, so only advance the resize baseline.
+        if (Number.isFinite(touchScrollUntil)) {
+          touchScrollUntil = performance.now() + TOUCH_SCROLL_IDLE_MS;
+        }
+        syncScrollBaseline();
+        return;
+      }
       // A scroll event can be queued after layout but before ResizeObserver.
       // Do not replace the pre-resize position with that transient value.
       if (container.clientHeight === previousClientHeight) {
@@ -443,6 +473,11 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     const observer = new ResizeObserver(() => {
       const nextClientHeight = container.clientHeight;
       if (nextClientHeight === previousClientHeight) return;
+
+      if (isTouchScrolling()) {
+        syncScrollBaseline();
+        return;
+      }
 
       const nextScrollTop = getScrollTopForResizedViewport(
         previousScrollTop,
@@ -457,10 +492,16 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       }
     });
 
+    container.addEventListener("touchstart", handleTouchStart, { passive: true });
+    container.addEventListener("touchend", handleTouchEnd, { passive: true });
+    container.addEventListener("touchcancel", handleTouchEnd, { passive: true });
     container.addEventListener("scroll", handleScroll, { passive: true });
     observer.observe(container);
     return () => {
       observer.disconnect();
+      container.removeEventListener("touchstart", handleTouchStart);
+      container.removeEventListener("touchend", handleTouchEnd);
+      container.removeEventListener("touchcancel", handleTouchEnd);
       container.removeEventListener("scroll", handleScroll);
     };
   }, [error, isEmptyNew, isMobile, loading, scrollContainerRef]);
@@ -706,7 +747,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
       </div>
 
       {isEmptyNew ? (
-        <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
+        <div
+          className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8"
+          style={{ paddingTop: "calc(2rem + var(--app-new-session-center-offset, 0px))" }}
+        >
           <div className="w-full max-w-[820px]">
             <div
               className="mb-3"

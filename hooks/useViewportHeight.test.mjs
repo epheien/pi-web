@@ -3,11 +3,36 @@ import test from "node:test";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url);
-const { shouldTrackKeyboardViewportHeight } = await jiti.import("./useViewportHeight.ts");
+const {
+  getKeyboardViewportGeometry,
+  shouldTrackKeyboardViewportHeight,
+} = await jiti.import("./useViewportHeight.ts");
+
+test("compensates the new-session center as the keyboard first shrinks the viewport", () => {
+  assert.deepEqual(getKeyboardViewportGeometry(844, 510, 0), {
+    height: 510,
+    newSessionCenterOffset: 334,
+  });
+});
+
+test("keeps the new-session screen center stable when WebKit later pans the viewport", () => {
+  const offsetTop = 120;
+  const geometry = getKeyboardViewportGeometry(844, 510, offsetTop);
+  const screenCenter = geometry.height / 2
+    - offsetTop
+    + geometry.newSessionCenterOffset / 2;
+
+  assert.deepEqual(geometry, {
+    height: 630,
+    newSessionCenterOffset: 454,
+  });
+  assert.equal(screenCenter, 844 / 2);
+});
 
 test("uses the visual viewport for a focused editor when the keyboard shrinks it", () => {
   assert.equal(shouldTrackKeyboardViewportHeight({
     hasFocusedEditable: true,
+    keepTrackingAfterFocusLoss: false,
     keyboardTracking: false,
     innerHeight: 844,
     viewportHeight: 510,
@@ -18,6 +43,7 @@ test("uses the visual viewport for a focused editor when the keyboard shrinks it
 test("does not keep the keyboard height after the visual viewport restores", () => {
   assert.equal(shouldTrackKeyboardViewportHeight({
     hasFocusedEditable: false,
+    keepTrackingAfterFocusLoss: true,
     keyboardTracking: true,
     innerHeight: 844,
     viewportHeight: 844,
@@ -28,6 +54,7 @@ test("does not keep the keyboard height after the visual viewport restores", () 
 test("keeps tracking the reduced viewport while the keyboard dismisses", () => {
   assert.equal(shouldTrackKeyboardViewportHeight({
     hasFocusedEditable: false,
+    keepTrackingAfterFocusLoss: true,
     keyboardTracking: true,
     innerHeight: 844,
     viewportHeight: 510,
@@ -38,6 +65,7 @@ test("keeps tracking the reduced viewport while the keyboard dismisses", () => {
 test("does not mistake pinch zoom for an open keyboard", () => {
   assert.equal(shouldTrackKeyboardViewportHeight({
     hasFocusedEditable: true,
+    keepTrackingAfterFocusLoss: false,
     keyboardTracking: false,
     innerHeight: 844,
     viewportHeight: 422,
@@ -48,6 +76,7 @@ test("does not mistake pinch zoom for an open keyboard", () => {
 test("keeps the dynamic viewport height when the visual viewport is not reduced", () => {
   assert.equal(shouldTrackKeyboardViewportHeight({
     hasFocusedEditable: true,
+    keepTrackingAfterFocusLoss: false,
     keyboardTracking: false,
     innerHeight: 844,
     viewportHeight: 844,
@@ -58,6 +87,7 @@ test("keeps the dynamic viewport height when the visual viewport is not reduced"
 test("does not start keyboard tracking merely because an unfocused viewport is reduced", () => {
   assert.equal(shouldTrackKeyboardViewportHeight({
     hasFocusedEditable: false,
+    keepTrackingAfterFocusLoss: false,
     keyboardTracking: false,
     innerHeight: 844,
     viewportHeight: 510,
@@ -70,6 +100,7 @@ test("keeps one viewport-tracking lifecycle across rapid blur and refocus", () =
   const transition = (hasFocusedEditable, viewportHeight) => {
     keyboardTracking = shouldTrackKeyboardViewportHeight({
       hasFocusedEditable,
+      keepTrackingAfterFocusLoss: true,
       keyboardTracking,
       innerHeight: 844,
       viewportHeight,
@@ -84,4 +115,15 @@ test("keeps one viewport-tracking lifecycle across rapid blur and refocus", () =
   assert.equal(transition(true, 590), true, "editor refocused while keyboard reverses");
   assert.equal(transition(false, 700), true, "second dismissal remains tracked");
   assert.equal(transition(false, 844), false, "tracking ends only at the resting viewport");
+});
+
+test("browser mode stops using a stale keyboard viewport as soon as focus leaves", () => {
+  assert.equal(shouldTrackKeyboardViewportHeight({
+    hasFocusedEditable: false,
+    keepTrackingAfterFocusLoss: false,
+    keyboardTracking: true,
+    innerHeight: 844,
+    viewportHeight: 510,
+    viewportScale: 1,
+  }), false);
 });

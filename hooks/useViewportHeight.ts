@@ -4,10 +4,16 @@ import { useEffect, type RefObject } from "react";
 
 interface KeyboardViewportState {
   hasFocusedEditable: boolean;
+  keepTrackingAfterFocusLoss: boolean;
   keyboardTracking: boolean;
   innerHeight: number;
   viewportHeight: number;
   viewportScale: number;
+}
+
+interface KeyboardViewportGeometry {
+  height: number;
+  newSessionCenterOffset: number;
 }
 
 const VIEWPORT_TRACKING_MS = 750;
@@ -15,6 +21,7 @@ const KEYBOARD_VIEWPORT_THRESHOLD = 1;
 
 export function shouldTrackKeyboardViewportHeight({
   hasFocusedEditable,
+  keepTrackingAfterFocusLoss,
   keyboardTracking,
   innerHeight,
   viewportHeight,
@@ -24,7 +31,24 @@ export function shouldTrackKeyboardViewportHeight({
   const viewportIsReduced = innerHeight - viewportHeight > KEYBOARD_VIEWPORT_THRESHOLD;
   return isUnscaled
     && viewportIsReduced
-    && (hasFocusedEditable || keyboardTracking);
+    && (hasFocusedEditable || (keepTrackingAfterFocusLoss && keyboardTracking));
+}
+
+export function getKeyboardViewportGeometry(
+  innerHeight: number,
+  viewportHeight: number,
+  viewportOffsetTop: number,
+): KeyboardViewportGeometry {
+  const offsetTop = Math.max(0, viewportOffsetTop);
+  const keyboardInset = Math.max(0, innerHeight - viewportHeight);
+
+  return {
+    height: viewportHeight + offsetTop,
+    // WebKit can report the shrinking height before it reports the visual
+    // viewport's top offset. Compensate both values so a vertically centered
+    // fresh-session composer stays at the same screen position throughout.
+    newSessionCenterOffset: keyboardInset + offsetTop,
+  };
 }
 
 function hasFocusedEditableElement(): boolean {
@@ -35,6 +59,12 @@ function hasFocusedEditableElement(): boolean {
     || activeElement.tagName === "INPUT"
     || activeElement.tagName === "SELECT"
     || activeElement.tagName === "TEXTAREA";
+}
+
+function isStandaloneDisplayMode(): boolean {
+  const iosNavigator = navigator as Navigator & { standalone?: boolean };
+  return window.matchMedia("(display-mode: standalone)").matches
+    || iosNavigator.standalone === true;
 }
 
 /**
@@ -52,19 +82,22 @@ export function useViewportHeight(viewportRootRef: RefObject<HTMLElement | null>
     let frameId: number | null = null;
     let trackUntil = 0;
     let keyboardViewportActive = false;
+    const keepTrackingAfterFocusLoss = isStandaloneDisplayMode();
 
-    const clearHeight = () => {
+    const clearViewportGeometry = () => {
       viewportRoot.style.removeProperty("--app-viewport-height");
+      viewportRoot.style.removeProperty("--app-new-session-center-offset");
     };
 
     const update = (timestamp: number) => {
       frameId = null;
       const trackKeyboardViewport = shouldTrackKeyboardViewportHeight({
         hasFocusedEditable: hasFocusedEditableElement(),
-        // Keep following visualViewport after focusout. On iOS, focus leaves
-        // before the keyboard starts expanding the viewport; restoring the
-        // full shell at that point puts the composer behind the still-visible
-        // keyboard and makes rapid blur/refocus transitions race each other.
+        // Standalone WebKit can leave the reduced viewport behind after focus
+        // exits, so keep following it through dismissal there. Browser mode
+        // restores its chrome independently; retaining a stale offset after
+        // focusout visibly drags the top bar down before it settles.
+        keepTrackingAfterFocusLoss,
         keyboardTracking: keyboardViewportActive,
         innerHeight: window.innerHeight,
         viewportHeight: viewport.height,
@@ -73,12 +106,25 @@ export function useViewportHeight(viewportRootRef: RefObject<HTMLElement | null>
 
       keyboardViewportActive = trackKeyboardViewport;
       if (trackKeyboardViewport) {
-        // visualViewport already reports WebKit's keyboard animation frame by
-        // frame. Mirroring it keeps the composer inside the visible geometry
-        // instead of creating a second animation that can lag or reverse.
-        viewportRoot.style.setProperty("--app-viewport-height", `${viewport.height}px`);
+        const geometry = getKeyboardViewportGeometry(
+          window.innerHeight,
+          viewport.height,
+          viewport.offsetTop,
+        );
+        // Keep the shell at the layout viewport origin, matching normal chat
+        // sessions, but extend it through the bottom of the panned visual
+        // viewport. Moving the shell itself makes Safari's briefly stale
+        // offsetTop move the top bar after the keyboard has already vanished.
+        viewportRoot.style.setProperty(
+          "--app-viewport-height",
+          `${geometry.height}px`,
+        );
+        viewportRoot.style.setProperty(
+          "--app-new-session-center-offset",
+          `${geometry.newSessionCenterOffset}px`,
+        );
       } else {
-        clearHeight();
+        clearViewportGeometry();
       }
 
       if (timestamp < trackUntil) {
@@ -110,7 +156,7 @@ export function useViewportHeight(viewportRootRef: RefObject<HTMLElement | null>
       window.removeEventListener("focusout", scheduleUpdate);
       window.removeEventListener("pageshow", scheduleUpdate);
       if (frameId !== null) window.cancelAnimationFrame(frameId);
-      clearHeight();
+      clearViewportGeometry();
     };
   }, [viewportRootRef]);
 }
